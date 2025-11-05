@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "network-allow-openai",
+  "description": "Allow connecting to OpenAI endpoints",
+  "permissions": ["core:default"],
+  "windows": ["main"],
+  "network": {
+    "http": {
+      "hosts": [
+        "https://api.openai.com",
+        "https://chat.openai.com",
+        "https://*.openai.com"
+      ]
+    }
+  }
+}
