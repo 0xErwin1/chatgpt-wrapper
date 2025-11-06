@@ -199,24 +199,26 @@ fn load_tray_icon<R: tauri::Runtime>(
     if use_light {
         let icon_name = "icon-light-32x32.png";
         
-        if let Ok(resource_dir) = app.path().resource_dir() {
-            let icon_path = resource_dir.join("icons").join(icon_name);
-            if let Ok(img_data) = std::fs::read(&icon_path) {
-                if let Ok(img) = image::load_from_memory(&img_data) {
-                    let rgba = img.to_rgba8();
-                    let (width, height) = rgba.dimensions();
-                    return tauri::image::Image::new_owned(rgba.into_raw(), width, height);
-                }
-            }
-        }
+        let search_paths = vec![
+            // 1. Resource directory (for AppImage and bundled apps)
+            app.path().resource_dir().ok().map(|d| d.join("icons").join(icon_name)),
+            // 2. Executable directory + icons (for installed binary)
+            std::env::current_exe().ok().and_then(|exe| {
+                exe.parent().map(|p| p.join("icons").join(icon_name))
+            }),
+            // 3. Development path
+            std::env::current_dir().ok().map(|d| d.join("src-tauri").join("icons").join(icon_name)),
+        ];
         
-        if let Ok(current_dir) = std::env::current_dir() {
-            let dev_path = current_dir.join("src-tauri").join("icons").join(icon_name);
-            if let Ok(img_data) = std::fs::read(&dev_path) {
-                if let Ok(img) = image::load_from_memory(&img_data) {
-                    let rgba = img.to_rgba8();
-                    let (width, height) = rgba.dimensions();
-                    return tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+        for path_opt in search_paths {
+            if let Some(icon_path) = path_opt {
+                if let Ok(img_data) = std::fs::read(&icon_path) {
+                    if let Ok(img) = image::load_from_memory(&img_data) {
+                        let rgba = img.to_rgba8();
+                        let (width, height) = rgba.dimensions();
+                        eprintln!("✓ Loaded tray icon from: {}", icon_path.display());
+                        return tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+                    }
                 }
             }
         }

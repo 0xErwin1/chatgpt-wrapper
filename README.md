@@ -51,33 +51,53 @@ To install ChatGPT Desktop under `~/.local`, run:
 The script simply builds the optimized Tauri binary and installs:
 - `~/.local/opt/chatgpt-wrapper/chatgpt-wrapper` (release binary)
 - `~/.local/opt/chatgpt-wrapper/chatgpt-desktop` (launcher script)
+- `~/.local/opt/chatgpt-wrapper/icons/` (runtime icons for tray)
 - `~/.local/share/applications/chatgpt-wrapper.desktop`
-- `~/.local/share/icons/hicolor/128x128/apps/chatgpt-wrapper.png`
+- `~/.local/share/icons/hicolor/*/apps/chatgpt-wrapper*.png` (system icons in multiple sizes)
 
 No AppImage or linuxdeploy download is required, so it works fully offline. After it completes, launch **ChatGPT Desktop** from your application menu or via the launcher path.
 
 ## Uninstall
 
 ```bash
+# Remove application files
 rm -f ~/.local/share/applications/chatgpt-wrapper.desktop
 rm -rf ~/.local/opt/chatgpt-wrapper
+
+# Remove icons
+rm -f ~/.local/share/icons/hicolor/32x32/apps/chatgpt-wrapper.png
+rm -f ~/.local/share/icons/hicolor/32x32/apps/chatgpt-wrapper-tray-light.png
 rm -f ~/.local/share/icons/hicolor/128x128/apps/chatgpt-wrapper.png
+rm -f ~/.local/share/icons/hicolor/256x256/apps/chatgpt-wrapper.png
+
+# Update databases
 update-desktop-database ~/.local/share/applications
+gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
 ```
 
-Optionally delete the config/cache folders mentioned earlier.
+Optionally delete the config/cache folders:
+```bash
+rm -rf ~/.config/dev.iperez.chatgpt-wrapper
+rm -rf ~/.cache/dev.iperez.chatgpt-wrapper
+```
 
-## settings
+## Settings
 
 You can edit the settings file located at `~/.config/dev.iperez.chatgpt-wrapper/settings.json`.
 
-### Options
+### Available Options
 
 ```json
 {
-  "hide_decorations": false // Hide GTK window bar
+  "notifications_enabled": true,  // Enable/disable desktop notifications
+  "hide_decorations": false,      // Hide/show GTK window decorations (title bar)
+  "show_tray": true,              // Show/hide system tray icon
+  "close_to_tray": false,         // Minimize to tray instead of closing the app
+  "tray_icon_light": false        // Use light icon for dark themes
 }
 ```
+
+**Note:** Changes to settings require restarting the application to take effect.
 
 ## License
 
