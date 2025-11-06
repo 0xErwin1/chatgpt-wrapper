@@ -28,6 +28,14 @@ const INIT_SCRIPT: &str = r#"
         });
     }
 
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key === 'r')) {
+            e.preventDefault();
+            window.location.reload();
+        }
+    }, true);
+
+
     document.addEventListener('click', function(e) {
         const link = e.target.closest('a');
         if (!link) return;
@@ -63,10 +71,19 @@ const INIT_SCRIPT: &str = r#"
 })();
 "#;
 
+#[tauri::command]
+fn reload_webview(window: WebviewWindow) -> Result<(), String> {
+    window
+        .eval("window.location.reload();")
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .invoke_handler(tauri::generate_handler![reload_webview])
         .setup(|app| {
             if app.get_webview_window("main").is_none() {
                 initialize_application(app)?;
@@ -134,6 +151,7 @@ fn init_main_window<R: tauri::Runtime>(
     .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     .accept_first_mouse(true)
     .initialization_script(INIT_SCRIPT)
+    .additional_browser_args("--enable-features=WebRTCPipeWireCapturer")
     .on_new_window(|url, _features| {
         if is_allowed_url(&url) {
             tauri::webview::NewWindowResponse::Allow

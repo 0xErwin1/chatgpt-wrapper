@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "clipboard-capability",
+  "description": "Allow clipboard access for pasting images from system clipboard",
+  "windows": ["main"],
+  "permissions": [
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-read-image",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-write-image"
+  ],
+  "platforms": ["linux", "macOS", "windows"],
+  "remote": {
+    "urls": ["https://*", "http://*"]
+  }
+}

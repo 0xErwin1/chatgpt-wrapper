@@ -10,8 +10,14 @@
     "withGlobalTauri": true,
     "windows": [],
     "security": {
-      "csp": null
-    }
+      "csp": null,
+      "capabilities": [
+        "default",
+        "clipboard-capability",
+        "network-allow-openai"
+      ]
+    },
+    "trayIcon": null
   },
   "bundle": {
     "active": true,
