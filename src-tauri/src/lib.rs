@@ -1,12 +1,15 @@
+mod settings;
+
 use open::that as open_in_browser;
-use serde::{Deserialize, Serialize};
+use settings::Settings;
 use std::fs;
-use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{
-    webview::DownloadEvent, App, AppHandle, Manager, Theme, WebviewUrl, WebviewWindow,
-    WebviewWindowBuilder,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::DownloadEvent,
+    App, AppHandle, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 use tauri_plugin_notification::NotificationExt;
 use url::Url;
@@ -101,13 +104,76 @@ fn reload_webview(window: WebviewWindow) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_settings<R: tauri::Runtime>(app: AppHandle<R>) -> Settings {
+    Settings::load(&app)
+}
+
+#[tauri::command]
+fn save_settings<R: tauri::Runtime>(app: AppHandle<R>, settings: Settings) -> Result<(), String> {
+    settings.save(&app)?;
+
+    // Apply decorations setting
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_decorations(!settings.hide_decorations);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn toggle_notifications<R: tauri::Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let mut settings = Settings::load(&app);
+    settings.notifications_enabled = !settings.notifications_enabled;
+    settings.save(&app)?;
+    Ok(settings.notifications_enabled)
+}
+
+#[tauri::command]
+fn toggle_decorations<R: tauri::Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let mut settings = Settings::load(&app);
+    settings.hide_decorations = !settings.hide_decorations;
+    settings.save(&app)?;
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_decorations(!settings.hide_decorations);
+    }
+
+    Ok(settings.hide_decorations)
+}
+
+#[tauri::command]
+fn toggle_close_to_tray<R: tauri::Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let mut settings = Settings::load(&app);
+    settings.close_to_tray = !settings.close_to_tray;
+    settings.save(&app)?;
+    Ok(settings.close_to_tray)
+}
+
+#[tauri::command]
+fn toggle_tray_icon<R: tauri::Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    let mut settings = Settings::load(&app);
+    settings.tray_icon_light = !settings.tray_icon_light;
+    eprintln!("Toggling tray icon to: {}", settings.tray_icon_light);
+    settings.save(&app)?;
+    Ok(settings.tray_icon_light)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![reload_webview])
+        .invoke_handler(tauri::generate_handler![
+            reload_webview,
+            get_settings,
+            save_settings,
+            toggle_notifications,
+            toggle_decorations,
+            toggle_close_to_tray,
+            toggle_tray_icon
+        ])
         .setup(|app| {
             if app.get_webview_window("main").is_none() {
                 initialize_application(app)?;
@@ -119,35 +185,234 @@ pub fn run() {
 }
 
 /// Prepares configuration and window so the app feels desktop-native.
-fn initialize_application<R: tauri::Runtime>(app: &App<R>) -> tauri::Result<()> {
-    let (config_state, hide_decorations) = load_initial_preferences(app);
-    persist_decoration_pref(app.handle(), &config_state, hide_decorations);
-
-    let (_decorations, _window) = init_main_window(app, hide_decorations)?;
+fn initialize_application<R: tauri::Runtime>(app: &mut App<R>) -> tauri::Result<()> {
+    let settings = Settings::load(&app.handle());
+    let (_decorations, _window) = init_main_window(app, settings.hide_decorations)?;
+    setup_tray(app)?;
     Ok(())
 }
 
-/// Loads persisted preferences, allowing an environment variable to override them.
-fn load_initial_preferences<R: tauri::Runtime>(app: &App<R>) -> (Arc<Mutex<AppConfig>>, bool) {
-    let mut config = load_app_config(app);
-    if let Some(env_override) = decoration_pref_from_env() {
-        config.hide_decorations = env_override;
+fn load_tray_icon<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    use_light: bool,
+) -> tauri::image::Image<'static> {
+    if use_light {
+        let icon_name = "icon-light-32x32.png";
+        
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let icon_path = resource_dir.join("icons").join(icon_name);
+            if let Ok(img_data) = std::fs::read(&icon_path) {
+                if let Ok(img) = image::load_from_memory(&img_data) {
+                    let rgba = img.to_rgba8();
+                    let (width, height) = rgba.dimensions();
+                    return tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+                }
+            }
+        }
+        
+        if let Ok(current_dir) = std::env::current_dir() {
+            let dev_path = current_dir.join("src-tauri").join("icons").join(icon_name);
+            if let Ok(img_data) = std::fs::read(&dev_path) {
+                if let Ok(img) = image::load_from_memory(&img_data) {
+                    let rgba = img.to_rgba8();
+                    let (width, height) = rgba.dimensions();
+                    return tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+                }
+            }
+        }
     }
-
-    let hide_decorations = config.hide_decorations;
-    (Arc::new(Mutex::new(config)), hide_decorations)
+    
+    if let Some(default_icon) = app.default_window_icon() {
+        let rgba = default_icon.rgba().to_vec();
+        tauri::image::Image::new_owned(rgba, default_icon.width(), default_icon.height())
+    } else {
+        tauri::image::Image::new_owned(vec![0, 0, 0, 0], 1, 1)
+    }
 }
 
-/// Parses the decoration override from `CHATGPT_TAURI_HIDE_DECORATIONS`.
-fn decoration_pref_from_env() -> Option<bool> {
-    std::env::var("CHATGPT_TAURI_HIDE_DECORATIONS")
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes"
-            )
+fn update_tray_menu<R: tauri::Runtime>(app: &AppHandle<R>) {
+    let settings = Settings::load(app);
+
+    if let Some(tray) = app.tray_by_id("main") {
+        let icon = load_tray_icon(app, settings.tray_icon_light);
+        let _ = tray.set_icon(Some(icon));
+
+        let mut tooltip_parts = vec!["ChatGPT Desktop"];
+        if settings.close_to_tray {
+            tooltip_parts.push("(Close to Tray)");
+        }
+        if !settings.notifications_enabled {
+            tooltip_parts.push("(Notifications Off)");
+        }
+        let _ = tray.set_tooltip(Some(tooltip_parts.join(" ")));
+        // Create menu items with current state
+        let show_hide = MenuItem::with_id(app, "show_hide", "Show/Hide", true, None::<&str>).ok();
+        let notifications = MenuItem::with_id(
+            app,
+            "toggle_notifications",
+            if settings.notifications_enabled {
+                "Disable Notifications"
+            } else {
+                "Enable Notifications"
+            },
+            true,
+            None::<&str>,
+        )
+        .ok();
+        let decorations = MenuItem::with_id(
+            app,
+            "toggle_decorations",
+            if settings.hide_decorations {
+                "Show Window Decorations"
+            } else {
+                "Hide Window Decorations"
+            },
+            true,
+            None::<&str>,
+        )
+        .ok();
+        let close_to_tray = MenuItem::with_id(
+            app,
+            "toggle_close_to_tray",
+            if settings.close_to_tray {
+                "✓ Close to Tray"
+            } else {
+                "Close to Tray"
+            },
+            true,
+            None::<&str>,
+        )
+        .ok();
+        let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).ok();
+
+        if let (Some(sh), Some(n), Some(d), Some(ct), Some(q)) = (
+            show_hide,
+            notifications,
+            decorations,
+            close_to_tray,
+            quit,
+        ) {
+            if let Ok(menu) = Menu::with_items(app, &[&sh, &n, &d, &ct, &q]) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        }
+    }
+}
+
+fn setup_tray<R: tauri::Runtime>(app: &App<R>) -> tauri::Result<()> {
+    let settings = Settings::load(&app.handle());
+
+    let show_hide = MenuItem::with_id(app, "show_hide", "Show/Hide", true, None::<&str>)?;
+    let notifications = MenuItem::with_id(
+        app,
+        "toggle_notifications",
+        if settings.notifications_enabled {
+            "Disable Notifications"
+        } else {
+            "Enable Notifications"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let decorations = MenuItem::with_id(
+        app,
+        "toggle_decorations",
+        if settings.hide_decorations {
+            "Show Window Decorations"
+        } else {
+            "Hide Window Decorations"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let close_to_tray = MenuItem::with_id(
+        app,
+        "toggle_close_to_tray",
+        if settings.close_to_tray {
+            "✓ Close to Tray"
+        } else {
+            "Close to Tray"
+        },
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show_hide,
+            &notifications,
+            &decorations,
+            &close_to_tray,
+            &quit,
+        ],
+    )?;
+
+    // Build tooltip based on settings
+    let mut tooltip_parts = vec!["ChatGPT Desktop"];
+    if settings.close_to_tray {
+        tooltip_parts.push("(Close to Tray)");
+    }
+    if !settings.notifications_enabled {
+        tooltip_parts.push("(Notifications Off)");
+    }
+
+    let icon = load_tray_icon(&app.handle(), settings.tray_icon_light);
+
+    let _tray = TrayIconBuilder::new()
+        .icon(icon)
+        .tooltip(tooltip_parts.join(" "))
+        .menu(&menu)
+        .on_menu_event(move |app, event| match event.id.as_ref() {
+            "show_hide" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+            "toggle_notifications" => {
+                let _ = toggle_notifications(app.clone());
+                update_tray_menu(&app);
+            }
+            "toggle_decorations" => {
+                let _ = toggle_decorations(app.clone());
+                update_tray_menu(&app);
+            }
+            "toggle_close_to_tray" => {
+                let _ = toggle_close_to_tray(app.clone());
+                update_tray_menu(&app);
+            }
+            "quit" => {
+                app.exit(0);
+            }
+            _ => {}
         })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    if window.is_visible().unwrap_or(false) {
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
 }
 
 /// Handles download events: saves to Downloads folder and notifies user.
@@ -155,7 +420,7 @@ fn create_download_handler<R: tauri::Runtime>(
     app_handle: AppHandle<R>,
 ) -> impl Fn(tauri::Webview<R>, DownloadEvent) -> bool {
     let download_path = Arc::new(Mutex::new(Option::<PathBuf>::None));
-    
+
     move |_webview, event| {
         match event {
             DownloadEvent::Requested { destination, .. } => {
@@ -164,48 +429,58 @@ fn create_download_handler<R: tauri::Runtime>(
                     Ok(dir) => dir,
                     Err(_) => return false,
                 };
-                
+
                 // Set destination to downloads folder
                 let final_path = download_dir.join(&destination);
                 let mut locked_path = download_path.lock().unwrap();
                 *locked_path = Some(final_path.clone());
                 *destination = final_path;
-                
-                // Show notification
+
+                // Show notification if enabled
                 let app = app_handle.clone();
-                let filename = destination.file_name()
+                let filename = destination
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("file")
                     .to_string();
-                
+
                 tauri::async_runtime::spawn(async move {
-                    let _ = app.notification()
-                        .builder()
-                        .title("Downloading file")
-                        .body(&format!("Saving: {}", filename))
-                        .show();
+                    let settings = Settings::load(&app);
+                    if settings.notifications_enabled {
+                        let _ = app
+                            .notification()
+                            .builder()
+                            .title("Downloading file")
+                            .body(&format!("Saving: {}", filename))
+                            .show();
+                    }
                 });
-                
+
                 return true;
             }
             DownloadEvent::Finished { success, .. } => {
                 let path_opt = download_path.lock().unwrap().clone();
-                
+
                 if let Some(final_path) = path_opt {
                     let app = app_handle.clone();
                     tauri::async_runtime::spawn(async move {
-                        if success {
-                            let _ = app.notification()
-                                .builder()
-                                .title("Download completed")
-                                .body(&format!("Saved to: {}", final_path.display()))
-                                .show();
-                        } else {
-                            let _ = app.notification()
-                                .builder()
-                                .title("Download failed")
-                                .body("Could not complete the download")
-                                .show();
+                        let settings = Settings::load(&app);
+                        if settings.notifications_enabled {
+                            if success {
+                                let _ = app
+                                    .notification()
+                                    .builder()
+                                    .title("Download completed")
+                                    .body(&format!("Saved to: {}", final_path.display()))
+                                    .show();
+                            } else {
+                                let _ = app
+                                    .notification()
+                                    .builder()
+                                    .title("Download failed")
+                                    .body("Could not complete the download")
+                                    .show();
+                            }
                         }
                     });
                 }
@@ -262,10 +537,24 @@ fn init_main_window<R: tauri::Runtime>(
     }
 
     let window = webview_builder.build()?;
-    
+
     if hide_decorations {
         let _ = window.set_decorations(false);
     }
+
+    // Setup close to tray handler
+    let app_handle = app.handle().clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            let settings = Settings::load(&app_handle);
+            if settings.close_to_tray {
+                api.prevent_close();
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+        }
+    });
 
     Ok((decorations, window))
 }
@@ -289,84 +578,15 @@ fn is_allowed_url(url: &Url) -> bool {
     match url.scheme() {
         "https" | "http" => match url.host_str() {
             Some(host) => {
-                host == "chatgpt.com" 
-                || host == "chat.openai.com" 
-                || host.ends_with(".openai.com")
-                || host.ends_with(".oaistatic.com")
-                || host.ends_with(".oaiusercontent.com")
+                host == "chatgpt.com"
+                    || host == "chat.openai.com"
+                    || host.ends_with(".openai.com")
+                    || host.ends_with(".oaistatic.com")
+                    || host.ends_with(".oaiusercontent.com")
             }
             None => true,
         },
         "about" | "data" | "blob" | "wss" | "ws" => true,
         _ => false,
     }
-}
-
-/// Captures user preferences persisted on disk.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AppConfig {
-    #[serde(default)]
-    hide_decorations: bool,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            hide_decorations: false,
-        }
-    }
-}
-
-fn load_app_config<R: tauri::Runtime>(app: &App<R>) -> AppConfig {
-    let path = config_path_from_app(app);
-    if let Some(path) = path {
-        if let Ok(bytes) = fs::read(path) {
-            if let Ok(cfg) = serde_json::from_slice::<AppConfig>(&bytes) {
-                return cfg;
-            }
-        }
-    }
-
-    AppConfig::default()
-}
-
-/// Persists the latest decoration preference and reports failures to stderr.
-fn persist_decoration_pref<R: tauri::Runtime>(
-    handle: &AppHandle<R>,
-    config_state: &Arc<Mutex<AppConfig>>,
-    hide: bool,
-) {
-    if let Ok(mut config) = config_state.lock() {
-        config.hide_decorations = hide;
-        if let Err(err) = save_app_config(handle, &config) {
-            eprintln!("Failed to save config: {err}");
-        }
-    }
-}
-
-fn save_app_config<R: tauri::Runtime>(handle: &AppHandle<R>, config: &AppConfig) -> io::Result<()> {
-    if let Some(path) = config_path_from_handle(handle) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let data = serde_json::to_vec_pretty(config)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?;
-        fs::write(path, data)?;
-    }
-    Ok(())
-}
-
-fn config_path_from_app<R: tauri::Runtime>(app: &App<R>) -> Option<PathBuf> {
-    app.path()
-        .app_config_dir()
-        .ok()
-        .map(|dir| dir.join("settings.json"))
-}
-
-fn config_path_from_handle<R: tauri::Runtime>(handle: &AppHandle<R>) -> Option<PathBuf> {
-    handle
-        .path()
-        .app_config_dir()
-        .ok()
-        .map(|dir| dir.join("settings.json"))
 }
