@@ -35,7 +35,7 @@ cargo tauri dev
 ```
 
 Session/config data lives in:
-- `~/.config/dev.iperez.chatgpt-wrapper/settings.json` (UI preferences)
+- `~/.config/dev.iperez.chatgpt-wrapper/settings.json` (preferences)
 - `~/.local/share/dev.iperez.chatgpt-wrapper/webview-cache` (session storage)
 
 Remove those folders to reset the app.
@@ -66,6 +66,18 @@ update-desktop-database ~/.local/share/applications
 ```
 
 Optionally delete the config/cache folders mentioned earlier.
+
+## settings
+
+You can edit the settings file located at `~/.config/dev.iperez.chatgpt-wrapper/settings.json`.
+
+### Options
+
+```json
+{
+  "hide_decorations": false // Hide GTK window bar
+}
+```
 
 ## License
 
