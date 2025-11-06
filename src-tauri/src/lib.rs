@@ -9,11 +9,64 @@ use tauri::{
 };
 use url::Url;
 
-const CHATGPT_URL: &str = "https://chat.openai.com";
+const CHATGPT_URL: &str = "https://chatgpt.com";
+
+const INIT_SCRIPT: &str = r#"
+(function() {
+    const style = document.createElement('style');
+    style.textContent = `
+        * {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+    `;
+    if (document.head) {
+        document.head.appendChild(style);
+    } else {
+        document.addEventListener('DOMContentLoaded', function() {
+            document.head.appendChild(style);
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        const link = e.target.closest('a');
+        if (!link) return;
+        
+        const href = link.href;
+        if (!href) return;
+        
+        try {
+            const url = new URL(href);
+            const currentOrigin = window.location.origin;
+            
+            const allowedDomains = [
+                'chatgpt.com',
+                'chat.openai.com',
+                'openai.com',
+                'oaistatic.com',
+                'oaiusercontent.com'
+            ];
+            
+            const isAllowed = allowedDomains.some(domain => 
+                url.hostname === domain || url.hostname.endsWith('.' + domain)
+            );
+            
+            if (!isAllowed && url.origin !== currentOrigin) {
+                e.preventDefault();
+                e.stopPropagation();
+                window.open(href, '_blank');
+            }
+        } catch (err) {
+            console.log(err)
+        }
+    }, true);
+})();
+"#;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             if app.get_webview_window("main").is_none() {
                 initialize_application(app)?;
@@ -76,7 +129,11 @@ fn init_main_window<R: tauri::Runtime>(
     .title("ChatGPT Desktop")
     .theme(Some(Theme::Dark))
     .inner_size(1200.0, 800.0)
+    .min_inner_size(400.0, 300.0)
     .visible(true)
+    .user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    .accept_first_mouse(true)
+    .initialization_script(INIT_SCRIPT)
     .on_new_window(|url, _features| {
         if is_allowed_url(&url) {
             tauri::webview::NewWindowResponse::Allow
@@ -91,6 +148,7 @@ fn init_main_window<R: tauri::Runtime>(
     }
 
     let window = webview_builder.build()?;
+    
     if hide_decorations {
         let _ = window.set_decorations(false);
     }
@@ -117,12 +175,16 @@ fn is_allowed_url(url: &Url) -> bool {
     match url.scheme() {
         "https" | "http" => match url.host_str() {
             Some(host) => {
-                host == "chat.openai.com" || host == "chatgpt.com" || host.ends_with(".openai.com")
+                host == "chatgpt.com" 
+                || host == "chat.openai.com" 
+                || host.ends_with(".openai.com")
+                || host.ends_with(".oaistatic.com")
+                || host.ends_with(".oaiusercontent.com")
             }
             None => true,
         },
-        "about" | "data" | "blob" => true,
-        _ => true,
+        "about" | "data" | "blob" | "wss" | "ws" => true,
+        _ => false,
     }
 }
 
