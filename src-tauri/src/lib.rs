@@ -23,7 +23,7 @@ const INIT_SCRIPT: &str = r#"
         'https://cdn.oaistatic.com',
         'https://cdn.openai.com'
     ];
-    
+
     preconnectDomains.forEach(domain => {
         const link = document.createElement('link');
         link.rel = 'preconnect';
@@ -60,14 +60,14 @@ const INIT_SCRIPT: &str = r#"
     document.addEventListener('click', function(e) {
         const link = e.target.closest('a');
         if (!link) return;
-        
+
         const href = link.href;
         if (!href) return;
-        
+
         try {
             const url = new URL(href);
             const currentOrigin = window.location.origin;
-            
+
             const allowedDomains = [
                 'chatgpt.com',
                 'chat.openai.com',
@@ -75,11 +75,11 @@ const INIT_SCRIPT: &str = r#"
                 'oaistatic.com',
                 'oaiusercontent.com'
             ];
-            
-            const isAllowed = allowedDomains.some(domain => 
+
+            const isAllowed = allowedDomains.some(domain =>
                 url.hostname === domain || url.hostname.endsWith('.' + domain)
             );
-            
+
             if (!isAllowed && url.origin !== currentOrigin) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -193,18 +193,20 @@ fn load_tray_icon<R: tauri::Runtime>(
 ) -> tauri::image::Image<'static> {
     if use_light {
         let icon_name = "icon-light-32x32.png";
-        
+
         let search_paths = vec![
-            // 1. Resource directory (for AppImage and bundled apps)
-            app.path().resource_dir().ok().map(|d| d.join("icons").join(icon_name)),
-            // 2. Executable directory + icons (for installed binary)
-            std::env::current_exe().ok().and_then(|exe| {
-                exe.parent().map(|p| p.join("icons").join(icon_name))
-            }),
-            // 3. Development path
-            std::env::current_dir().ok().map(|d| d.join("src-tauri").join("icons").join(icon_name)),
+            app.path()
+                .resource_dir()
+                .ok()
+                .map(|d| d.join("icons").join(icon_name)),
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join("icons").join(icon_name))),
+            std::env::current_dir()
+                .ok()
+                .map(|d| d.join("src-tauri").join("icons").join(icon_name)),
         ];
-        
+
         for path_opt in search_paths {
             if let Some(icon_path) = path_opt {
                 if let Ok(img_data) = std::fs::read(&icon_path) {
@@ -218,7 +220,7 @@ fn load_tray_icon<R: tauri::Runtime>(
             }
         }
     }
-    
+
     if let Some(default_icon) = app.default_window_icon() {
         let rgba = default_icon.rgba().to_vec();
         tauri::image::Image::new_owned(rgba, default_icon.width(), default_icon.height())
@@ -238,11 +240,13 @@ fn update_tray_menu<R: tauri::Runtime>(app: &AppHandle<R>) {
         if settings.close_to_tray {
             tooltip_parts.push("(Close to Tray)");
         }
+
         if !settings.notifications_enabled {
             tooltip_parts.push("(Notifications Off)");
         }
+
         let _ = tray.set_tooltip(Some(tooltip_parts.join(" ")));
-        // Create menu items with current state
+
         let show_hide = MenuItem::with_id(app, "show_hide", "Show/Hide", true, None::<&str>).ok();
         let notifications = MenuItem::with_id(
             app,
@@ -256,6 +260,7 @@ fn update_tray_menu<R: tauri::Runtime>(app: &AppHandle<R>) {
             None::<&str>,
         )
         .ok();
+
         let decorations = MenuItem::with_id(
             app,
             "toggle_decorations",
@@ -268,6 +273,7 @@ fn update_tray_menu<R: tauri::Runtime>(app: &AppHandle<R>) {
             None::<&str>,
         )
         .ok();
+
         let close_to_tray = MenuItem::with_id(
             app,
             "toggle_close_to_tray",
@@ -280,15 +286,12 @@ fn update_tray_menu<R: tauri::Runtime>(app: &AppHandle<R>) {
             None::<&str>,
         )
         .ok();
+
         let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).ok();
 
-        if let (Some(sh), Some(n), Some(d), Some(ct), Some(q)) = (
-            show_hide,
-            notifications,
-            decorations,
-            close_to_tray,
-            quit,
-        ) {
+        if let (Some(sh), Some(n), Some(d), Some(ct), Some(q)) =
+            (show_hide, notifications, decorations, close_to_tray, quit)
+        {
             if let Ok(menu) = Menu::with_items(app, &[&sh, &n, &d, &ct, &q]) {
                 let _ = tray.set_menu(Some(menu));
             }
@@ -520,7 +523,7 @@ fn init_main_window<R: tauri::Runtime>(
         if url.scheme() == "blob" || url.scheme() == "data" {
             return tauri::webview::NewWindowResponse::Deny;
         }
-        
+
         if is_allowed_url(&url) {
             tauri::webview::NewWindowResponse::Allow
         } else {
@@ -581,7 +584,7 @@ fn is_allowed_url(url: &Url) -> bool {
                     || host.ends_with(".oaistatic.com")
                     || host.ends_with(".oaiusercontent.com")
             }
-            None => true,
+            _ => true,
         },
         "about" | "data" | "blob" | "wss" | "ws" => true,
         _ => false,
