@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "remote-notification",
+  "description": "Allow notifications from remote URLs",
+  "windows": ["main"],
+  "permissions": [
+    "notification:default"
+  ],
+  "platforms": ["linux", "macOS", "windows"],
+  "remote": {
+    "urls": ["https://*", "http://*"]
+  }
+}

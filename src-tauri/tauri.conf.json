@@ -14,7 +14,8 @@
       "capabilities": [
         "default",
         "clipboard-capability",
-        "network-allow-openai"
+        "network-allow-openai",
+        "remote-notification"
       ]
     },
     "trayIcon": null

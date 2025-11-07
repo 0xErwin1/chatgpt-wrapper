@@ -48,11 +48,6 @@ const INIT_SCRIPT: &str = r#"
         });
     }
 
-    // Auto-grant notification permission
-    if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission();
-    }
-
     // Reload handler
     document.addEventListener('keydown', function(e) {
         if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && e.key === 'r')) {
